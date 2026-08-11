@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Çoban Simulator</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101820;font-family:system-ui,-apple-system,sans-serif;touch-action:none}#game{position:fixed;inset:0;width:100vw!important;height:100vh!important;display:block;z-index:0;background:#87bde0}#ui{z-index:2}
+#ui{position:fixed;inset:0;color:white;pointer-events:none;text-shadow:0 2px 5px #000}
+#title{position:absolute;left:12px;top:10px;font-weight:900;font-size:19px}.pill{background:#101010aa;border:1px solid #ffffff22;border-radius:13px;padding:7px 10px;backdrop-filter:blur(5px)}
+#stats{position:absolute;right:10px;top:10px;font-weight:800;font-size:13px}.row{display:flex;gap:7px}
+#time{position:absolute;left:12px;top:50px;font-size:13px;font-weight:800}
+#notice{position:absolute;left:50%;top:15%;transform:translateX(-50%);padding:9px 14px;background:#000b;border-radius:13px;opacity:0;transition:.2s;white-space:nowrap}
+#joy{pointer-events:auto;position:absolute;left:20px;bottom:22px;width:130px;height:130px;border:2px solid #ffffff35;border-radius:50%;background:#ffffff13}
+#knob{position:absolute;left:39px;top:39px;width:50px;height:50px;border-radius:50%;background:#ffffff80}
+#acts{pointer-events:auto;position:absolute;right:18px;bottom:22px;display:flex;align-items:end;gap:10px}.btn{border:2px solid #ffffff40;color:white;background:#15151599;border-radius:50%;width:76px;height:76px;font-size:27px;font-weight:900}.btn.small{width:58px;height:58px;font-size:20px}.btn:active{transform:scale(.94)}
+#shop{pointer-events:auto;display:none;position:absolute;right:12px;top:58px;width:190px;padding:10px;background:#101010e8;border:1px solid #ffffff25;border-radius:14px;text-shadow:none}.shopbtn{display:block;width:100%;padding:9px 7px;margin-top:7px;border:0;border-radius:9px;font-weight:800}
+#warning{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-size:11px;opacity:.7}
+</style></head>
+<body>
+<script>
+(async()=>{
+  try{
+    if('serviceWorker' in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      for(const r of regs) await r.unregister();
+    }
+    if('caches' in window){
+      for(const k of await caches.keys()) await caches.delete(k);
+    }
+  }catch(e){}
+})();
+</script><canvas id="game"></canvas><div id="ui">
+<div id="title" class="pill">🐄 Çoban Simulator</div><div id="buildBadge" style="position:absolute;right:10px;top:58px;background:#ff1744;color:#fff;padding:7px 10px;border-radius:10px;font-weight:1000;font-size:13px;text-shadow:none;z-index:99">BUILD v2.6 · 2026-08-10 19:30</div>
+<div id="time" class="pill">☀️ Gün 1 · 08:00</div>
+<div id="stats" class="row"><span class="pill" id="cowStat">🐄 5/5</span><span class="pill" id="money">💰 0</span><span class="pill" id="grassStat">🌱 100%</span></div>
+<div id="notice"></div>
+<div id="shop"><b>Yükseltmeler</b><button class="shopbtn" id="cowBuy">+ İnek · 25💰</button><button class="shopbtn" id="speedBuy">Hareket hızı · 20💰</button><button class="shopbtn" id="stickBuy">Sopa etkisi · 20💰</button></div>
+<div id="joy"><div id="knob"></div></div><div id="acts"><button class="btn small" id="shopBtn">⬆️</button><button class="btn" id="stickBtn">🪵</button></div>
+<div id="debug" class="pill" style="position:absolute;left:12px;top:92px;font-size:11px">3D: başlatılıyor</div><div id="warning">Sol joystick: yürü · Sağ ekran: kamera · Akşam olmadan sürüyü ağıla topla</div>
+</div>
+<div id="boot" style="position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;background:#101820;color:white;font:700 16px system-ui">3D dünya yükleniyor…</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<script>
+setTimeout(()=>{
+  const b=document.querySelector('#boot');
+  if(b && b.textContent.includes('yükleniyor')) b.textContent='Yükleme 8 saniyeyi geçti — modül/asset bekleniyor…';
+},8000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {clone as skeletonClone} from 'three/addons/utils/SkeletonUtils.js';
+
+const C=document.querySelector('#game');
+const R=new THREE.WebGLRenderer({canvas:C,antialias:false,alpha:false,powerPreference:'default',preserveDrawingBuffer:true});
+R.setPixelRatio(1);
+R.shadowMap.enabled=false;
+R.setClearColor(0x87bde0,1);
+function dbg(t){const e=document.querySelector('#debug');if(e)e.textContent='3D: '+t}
+function canvasDiag(){
+ const r=C.getBoundingClientRect(), gl=R.getContext(), db=new THREE.Vector2();R.getDrawingBufferSize(db);
+ let meshes=0;S?.traverse?.(o=>{if(o.isMesh)meshes++});
+ return `${Math.round(r.width)}x${Math.round(r.height)} css · ${db.x}x${db.y} px · mesh:${meshes} · ${gl?gl.getParameter(gl.VERSION):'GL yok'}`;
+}
+window.addEventListener('error',e=>dbg('HATA '+e.message));
+window.addEventListener('unhandledrejection',e=>dbg('HATA '+(e.reason?.message||e.reason)));
+C.addEventListener('webglcontextlost',e=>{e.preventDefault();dbg('WEBGL CONTEXT LOST')});
+C.addEventListener('webglcontextrestored',()=>dbg('WEBGL GERİ GELDİ'));
+const S=new THREE.Scene();S.background=null;S.fog=null;
+const Cam=new THREE.PerspectiveCamera(60,1,.1,130), loader=new GLTFLoader(), clock3=new THREE.Clock();
+Cam.position.set(0,6,10);
+const hemi=new THREE.HemisphereLight(0xd9efff,0x55452c,1.8);S.add(hemi);
+const sun=new THREE.DirectionalLight(0xffedc2,2.5);sun.position.set(-15,28,12);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);S.add(sun);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(86,86),new THREE.MeshBasicMaterial({color:0x63a84d}));ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;ground.frustumCulled=false;S.add(ground);
+// Always-visible diagnostics: if these show, WebGL/camera are healthy regardless of assets.
+const grid=new THREE.GridHelper(40,20,0xffffff,0x355035);grid.position.y=.035;S.add(grid);
+const beacon=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,1.2),new THREE.MeshBasicMaterial({color:0xff2244,side:THREE.DoubleSide}));beacon.position.set(0,1.2,0);beacon.frustumCulled=false;S.add(beacon);
+const blueBox=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.2,1.2),new THREE.MeshBasicMaterial({color:0x2255ff}));blueBox.position.set(3,.6,-2);blueBox.frustumCulled=false;S.add(blueBox);
+const yellowBox=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.2,1.2),new THREE.MeshBasicMaterial({color:0xffdd22}));yellowBox.position.set(-3,.6,-2);yellowBox.frustumCulled=false;S.add(yellowBox);
+
+
+function load(url){return new Promise((ok,no)=>loader.load(url,ok,undefined,no))}
+function prep(o,scale=1){o.scale.setScalar(scale);o.traverse(x=>{if(x.isMesh){x.castShadow=true;x.receiveShadow=true}});return o}
+function normalizeModel(o,targetHeight){
+ o.updateMatrixWorld(true);
+ let box=new THREE.Box3().setFromObject(o), size=new THREE.Vector3(); box.getSize(size);
+ if(!isFinite(size.y)||size.y<0.0001)return o;
+ const k=targetHeight/size.y; o.scale.multiplyScalar(k); o.updateMatrixWorld(true);
+ box.setFromObject(o);
+ // center X/Z around origin and put feet/base on y=0
+ const center=new THREE.Vector3(); box.getCenter(center);
+ o.position.x-=center.x; o.position.z-=center.z; o.position.y-=box.min.y;
+ o.updateMatrixWorld(true); return o;
+}
+const assets={};
+async function loadAssets(){
+ const names={tree:'assets/env/tree_default.glb',oak:'assets/env/tree_oak.glb',rock:'assets/env/rock_largeA.glb',grass:'assets/env/grass.glb',fence:'assets/env/survival-fence.glb',gate:'assets/env/survival-fence-doorway.glb',barrel:'assets/env/survival-barrel.glb'};
+ for(const [k,u] of Object.entries(names)){try{assets[k]=(await load(u)).scene}catch(e){}}
+ try{assets.cow=await load('assets/models/cow.gltf')}catch(e){console.error(e)}
+ try{assets.player=await load('assets/models/shepherd.gltf')}catch(e){console.error(e)}
+}
+const patches=[];
+function patch(x,z,r=4){let m=new THREE.Mesh(new THREE.CircleGeometry(r,20),new THREE.MeshLambertMaterial({color:0x4fa441}));m.rotation.x=-Math.PI/2;m.position.set(x,.015,z);S.add(m);patches.push({m,health:1,r});}
+for(let i=0;i<34;i++)patch((Math.random()-.5)*65,(Math.random()-.5)*62,2.6+Math.random()*2.6);
+
+function cloneAsset(key,pos,scale=1,rot=0){
+ if(!assets[key])return;
+ let o=assets[key].clone(true), heights={tree:5.5,oak:5.5,rock:1.4,fence:1.1,gate:1.4,barrel:1.0};
+ prep(o,1);normalizeModel(o,(heights[key]||2)*scale);o.position.add(pos);o.rotation.y=rot;S.add(o);return o
+}
+function buildWorld(){
+ for(let i=0;i<25;i++){let a=Math.random()*Math.PI*2,r=29+Math.random()*10;cloneAsset(i%4?'tree':'oak',new THREE.Vector3(Math.cos(a)*r,0,Math.sin(a)*r),1.2+Math.random()*.7,Math.random()*6.28)}
+ for(let i=0;i<14;i++)cloneAsset('rock',new THREE.Vector3((Math.random()-.5)*65,0,(Math.random()-.5)*62),.7+Math.random()*.7,Math.random()*6.28);
+ // fenced night pen at north side
+ for(let x=-7;x<=7;x+=2.2){cloneAsset('fence',new THREE.Vector3(x,0,-27),1,0);cloneAsset('fence',new THREE.Vector3(x,0,-18),1,0)}
+ for(let z=-25;z<=-20;z+=2.2){cloneAsset('fence',new THREE.Vector3(-8,0,z),1,Math.PI/2);cloneAsset('fence',new THREE.Vector3(8,0,z),1,Math.PI/2)}
+ cloneAsset('gate',new THREE.Vector3(0,0,-18),1,0);cloneAsset('barrel',new THREE.Vector3(6.5,0,-20),1,0);
+}
+let player,mixerP,pActions={},activeP;
+function fallbackPlayer(){let g=new THREE.Group(),b=new THREE.Mesh(new THREE.BoxGeometry(.7,1.5,.55),new THREE.MeshLambertMaterial({color:0x3c65a5}));b.position.y=.75;g.add(b);return g}
+function setupPlayer(){
+ if(assets.player){player=prep(assets.player.scene,1);normalizeModel(player,1.75);mixerP=new THREE.AnimationMixer(player);for(const a of assets.player.animations)pActions[a.name]=mixerP.clipAction(a);playP('Idle')}
+ else player=fallbackPlayer();
+ player.position.set(0,0,4);S.add(player);
+ let stick=new THREE.Mesh(new THREE.CylinderGeometry(.035,.05,2.0,7),new THREE.MeshLambertMaterial({color:0x69401f}));stick.position.set(.55,1,.15);stick.rotation.z=.25;player.add(stick);
+}
+function playP(n){if(!pActions[n]||activeP===pActions[n])return;if(activeP)activeP.fadeOut(.18);activeP=pActions[n];activeP.reset().fadeIn(.18).play()}
+const cows=[];
+function fallbackCow(){let g=new THREE.Group(),b=new THREE.Mesh(new THREE.BoxGeometry(1.2,.7,.6),new THREE.MeshLambertMaterial({color:0xe8e3d9}));b.position.y=.5;g.add(b);return g}
+function addCow(){
+ let o,mix,acts={};
+ if(assets.cow){o=prep(skeletonClone(assets.cow.scene),1);normalizeModel(o,1.25);mix=new THREE.AnimationMixer(o);for(const a of assets.cow.animations)acts[a.name]=mix.clipAction(a)}
+ else o=fallbackCow();
+ o.position.set((Math.random()-.5)*15,0,(Math.random()-.5)*12);S.add(o);
+ let c={o,mix,acts,act:null,vel:new THREE.Vector3(),think:Math.random()*2,stolen:false,state:'Idle'};cows.push(c);cowAnim(c,'Idle');
+}
+function cowAnim(c,n){if(!c.acts[n]||c.act===c.acts[n])return;if(c.act)c.act.fadeOut(.2);c.act=c.acts[n];c.act.reset().fadeIn(.2).play()}
+const monsters=[];
+function spawnMonster(){if(monsters.length>=3)return;let g=new THREE.Group(),body=new THREE.Mesh(new THREE.CapsuleGeometry(.35,1.5,4,7),new THREE.MeshLambertMaterial({color:0x08090c}));body.position.y=1.1;g.add(body);let a=Math.random()*6.28,r=27+Math.random()*7;g.position.set(player.position.x+Math.cos(a)*r,0,player.position.z+Math.sin(a)*r);S.add(g);monsters.push({o:g,target:null})}
+
+let money=0,speed=5.6,stickPower=5,day=1,hour=8,dayRate=.24,yaw=0,pitch=.34;
+let joy={x:0,y:0},jid=null;const joyE=document.querySelector('#joy'),knob=document.querySelector('#knob');
+function jm(e){let r=joyE.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,l=Math.hypot(x,y),mx=42,k=l>mx?mx/l:1;joy.x=x*k/mx;joy.y=y*k/mx;knob.style.transform=`translate(${x*k}px,${y*k}px)`}
+joyE.onpointerdown=e=>{jid=e.pointerId;joyE.setPointerCapture(jid);jm(e)};joyE.onpointermove=e=>{if(e.pointerId===jid)jm(e)};joyE.onpointerup=()=>{jid=null;joy={x:0,y:0};knob.style.transform=''};
+let cid=null,lx=0,ly=0;C.onpointerdown=e=>{cid=e.pointerId;lx=e.clientX;ly=e.clientY};C.onpointermove=e=>{if(e.pointerId!==cid)return;yaw-=(e.clientX-lx)*.008;pitch=THREE.MathUtils.clamp(pitch+(e.clientY-ly)*.004,.14,.78);lx=e.clientX;ly=e.clientY};C.onpointerup=e=>{if(e.pointerId===cid)cid=null};
+function note(t){let n=document.querySelector('#notice');n.textContent=t;n.style.opacity=1;clearTimeout(note.t);note.t=setTimeout(()=>n.style.opacity=0,1400)}
+document.querySelector('#shopBtn').onclick=()=>{let s=document.querySelector('#shop');s.style.display=s.style.display==='block'?'none':'block'};
+document.querySelector('#cowBuy').onclick=()=>{if(money>=25){money-=25;addCow();note('Sürü büyüdü 🐄')}};
+document.querySelector('#speedBuy').onclick=()=>{if(money>=20){money-=20;speed+=.65;note('Hız arttı')}};
+document.querySelector('#stickBuy').onclick=()=>{if(money>=20){money-=20;stickPower+=1.4;note('Sopa etkisi arttı')}};
+document.querySelector('#stickBtn').onclick=()=>{for(const c of cows){if(c.stolen)continue;let d=c.o.position.distanceTo(player.position);if(d<4){let v=c.o.position.clone().sub(player.position).setY(0).normalize();c.vel.addScaledVector(v,stickPower);cowAnim(c,'Idle_HitReact1')}}};
+
+const fwd=new THREE.Vector3(),right=new THREE.Vector3(),move=new THREE.Vector3(),camDir=new THREE.Vector3();
+let income=0;
+function loop(){
+ requestAnimationFrame(loop);
+ try{
+ let dt=Math.min(clock3.getDelta(),.04);hour+=dt*dayRate;if(hour>=24){hour=6;day++}
+ let night=hour>=19.5||hour<6.3, dusk=hour>17.5&&hour<19.5;
+ let light=night?.1:(dusk?.45:1);hemi.intensity=.28+light*1.55;sun.intensity=.12+light*2.25;R.setClearColor(night?0x101525:(dusk?0xb77458:0x87bde0),1);
+ if(night&&Math.random()<dt*.1)spawnMonster();
+
+ fwd.set(-Math.sin(yaw),0,-Math.cos(yaw));right.set(Math.cos(yaw),0,-Math.sin(yaw));move.copy(fwd).multiplyScalar(-joy.y).addScaledVector(right,joy.x);
+ let moving=move.lengthSq()>.025;if(moving){move.normalize();player.position.addScaledVector(move,speed*dt);player.rotation.y=Math.atan2(move.x,move.z);playP('Walk')}else playP('Idle');
+ player.position.x=THREE.MathUtils.clamp(player.position.x,-39,39);player.position.z=THREE.MathUtils.clamp(player.position.z,-39,39);
+
+ let grazing=0;
+ for(const c of cows){if(c.stolen)continue;c.think-=dt;if(c.think<=0){c.think=1+Math.random()*4;let d=new THREE.Vector3(Math.random()-.5,0,Math.random()-.5);
+   if(Math.random()<.16&&cows.length>1){let q=cows[Math.floor(Math.random()*cows.length)];d.copy(q.o.position).sub(c.o.position)}
+   if(Math.random()<.22){let good=patches.filter(p=>p.health>.4);if(good.length)d.copy(good[Math.floor(Math.random()*good.length)].m.position).sub(c.o.position)}
+   if(Math.random()<.22)d.set(0,0,0);c.vel.copy(d.lengthSq()?d.normalize().multiplyScalar(.55+Math.random()*.75):d)}
+  c.o.position.addScaledVector(c.vel,dt);c.o.position.x=THREE.MathUtils.clamp(c.o.position.x,-38,38);c.o.position.z=THREE.MathUtils.clamp(c.o.position.z,-38,38);
+  if(c.vel.lengthSq()>.05){c.o.rotation.y=Math.atan2(c.vel.x,c.vel.z);cowAnim(c,'Walk')}else cowAnim(c,'Idle');
+  let near=null,nd=99;for(const p of patches){let d=c.o.position.distanceTo(p.m.position);if(d<nd){nd=d;near=p}}
+  if(near&&nd<near.r&&near.health>.07&&c.vel.lengthSq()<.1){near.health=Math.max(0,near.health-dt*.007);grazing++;cowAnim(c,'Eating');let h=near.health;near.m.material.color.setHSL(.12,.43,.2+h*.27)}
+ }
+ income+=dt;if(income>1){money+=grazing*.12;income=0}
+
+ Cam.getWorldDirection(camDir);
+ for(const m of monsters){if(!m.target||m.target.stolen)m.target=cows.filter(c=>!c.stolen).sort((a,b)=>a.o.position.distanceTo(m.o.position)-b.o.position.distanceTo(m.o.position))[0];if(!m.target)continue;
+  let to=m.o.position.clone().sub(Cam.position),distCam=to.length(),seen=camDir.dot(to.normalize())>.84&&distCam<23;
+  if(!seen){let d=m.target.o.position.clone().sub(m.o.position).setY(0),dist=d.length();if(dist>.1)m.o.position.addScaledVector(d.normalize(),dt*2.2);if(dist<1.6){let esc=m.o.position.clone().sub(player.position).setY(0).normalize();m.target.o.position.addScaledVector(esc,dt*2.5);m.o.position.addScaledVector(esc,dt*2.5);if(m.target.o.position.distanceTo(player.position)>43){m.target.stolen=true;m.target.o.visible=false;note('Bir inek karanlıkta kayboldu 🌘')}}}
+ }
+ let cp=new THREE.Vector3(player.position.x+Math.sin(yaw)*8*Math.cos(pitch),player.position.y+2.1+Math.sin(pitch)*8,player.position.z+Math.cos(yaw)*8*Math.cos(pitch));Cam.position.lerp(cp,1-Math.pow(.002,dt));Cam.lookAt(player.position.x,1.2,player.position.z);
+ if(mixerP)mixerP.update(dt);for(const c of cows)if(c.mix)c.mix.update(dt);
+ let alive=cows.filter(c=>!c.stolen).length,avg=patches.reduce((a,p)=>a+p.health,0)/patches.length;
+ document.querySelector('#time').textContent=`${night?'🌙':dusk?'🌇':'☀️'} Gün ${day} · ${String(Math.floor(hour)).padStart(2,'0')}:${String(Math.floor(hour%1*60)).padStart(2,'0')}`;
+ document.querySelector('#cowStat').textContent=`🐄 ${alive}/${cows.length}`;document.querySelector('#money').textContent=`💰 ${money.toFixed(1)}`;document.querySelector('#grassStat').textContent=`🌱 ${Math.round(avg*100)}%`;
+ R.render(S,Cam);dbg(`v2.6 · ${R.info.render.calls} çizim · ${canvasDiag()}`)
+ }catch(err){console.error(err);dbg('FRAME HATA '+err.message);R.render(S,Cam)}
+}
+function resize(){
+ const w=Math.max(1,window.innerWidth||document.documentElement.clientWidth||360);
+ const h=Math.max(1,window.innerHeight||document.documentElement.clientHeight||640);
+ C.style.width=w+'px';C.style.height=h+'px';
+ R.setSize(w,h,true);
+ Cam.aspect=w/h;Cam.updateProjectionMatrix();
+}addEventListener('resize',resize);
+try{
+ resize();
+ Cam.position.set(0,7,12);Cam.lookAt(0,1,0);
+ R.clear(true,true,true);R.render(S,Cam);
+ dbg(`v2.6 TEST · ${R.info.render.calls} çizim · ${canvasDiag()}`);
+ await new Promise(requestAnimationFrame);
+ await new Promise(requestAnimationFrame);
+ // Primitive world is already visible before any GLTF network/disk parsing begins.
+ const boot=document.querySelector('#boot');if(boot)boot.textContent='3D tamam — modeller yükleniyor…';
+ await loadAssets();dbg('assetler yüklendi · '+canvasDiag());
+ buildWorld();setupPlayer();for(let i=0;i<5;i++)addCow();
+ Cam.position.set(0,6,12);Cam.lookAt(player.position.x,1.2,player.position.z);
+ R.render(S,Cam);
+ if(boot)boot.remove();dbg('sahne hazır · '+canvasDiag());loop();
+}catch(err){console.error(err);const b=document.querySelector('#boot');b.textContent='Başlatma hatası: '+err.message;b.style.background='#3b1010';}
+</script></body></html>

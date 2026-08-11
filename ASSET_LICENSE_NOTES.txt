@@ -1,0 +1,11 @@
+Poly Haven:
+- Sparse Grass
+- Grass Medium 02
+License: CC0 (source-provided asset set)
+
+Human basemesh:
+- human_malefemale_basemesh_rigged.glb
+Provided by user.
+Before commercial release, retain the exact marketplace/source license and any required attribution in the game's credits.
+
+Other environment/cow assets are inherited from the prior prototype asset set.
